@@ -2,6 +2,7 @@
 import os
 import base64
 import uvicorn
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -15,7 +16,21 @@ load_dotenv()
 
 from adk_project.app.agent import root_agent
 
-app = FastAPI()
+# Global variables for runner and session service
+runner = None
+session_service = None
+APP_NAME = "mermaid_app"
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global runner, session_service
+    # Initialize ADK Runner on startup to avoid event loop issues
+    runner = InMemoryRunner(agent=root_agent, app_name=APP_NAME)
+    session_service = runner.session_service
+    yield
+    # Cleanup if needed
+
+app = FastAPI(lifespan=lifespan)
 
 # Mount static files using absolute paths based on the current file location
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -26,12 +41,6 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 # Setup templates
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
-
-# Initialize ADK Runner
-APP_NAME = "mermaid_app"
-# InMemoryRunner creates its own internal InMemorySessionService
-runner = InMemoryRunner(agent=root_agent, app_name=APP_NAME)
-session_service = runner.session_service
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root(request: Request):
@@ -45,6 +54,10 @@ async def chat(request: Request):
 
     user_id = "default_user" # Simplified for demo
     session_id = "default_session"
+
+    # Ensure runner is initialized
+    if not runner or not session_service:
+        return JSONResponse({"error": "Agent runner not initialized"}, status_code=500)
 
     # Ensure session exists in the runner's session service
     session = await session_service.get_session(app_name=APP_NAME, user_id=user_id, session_id=session_id)
