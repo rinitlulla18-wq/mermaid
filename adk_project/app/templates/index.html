@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ADK Mermaid Architect</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body class="bg-gray-100 min-h-screen p-8">
+    <div class="max-w-6xl mx-auto bg-white rounded-lg shadow-md p-6">
+        <h1 class="text-3xl font-bold mb-6 text-center text-blue-600">ADK Mermaid Architect</h1>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <!-- Input Section -->
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Description</label>
+                    <textarea id="userInput" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 p-2 border" rows="4" placeholder="Describe your system or architecture..."></textarea>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Upload Image (Optional)</label>
+                    <input type="file" id="imageInput" accept="image/*" class="mt-1 block w-full text-sm text-gray-500
+                        file:mr-4 file:py-2 file:px-4
+                        file:rounded-full file:border-0
+                        file:text-sm file:font-semibold
+                        file:bg-blue-50 file:text-blue-700
+                        hover:file:bg-blue-100">
+                </div>
+
+                <button id="generateBtn" class="w-full bg-blue-600 text-white font-bold py-2 px-4 rounded hover:bg-blue-700 transition duration-150 ease-in-out">
+                    Generate Diagram
+                </button>
+
+                <div id="loading" class="hidden text-center text-gray-500">
+                    Thinking... (This may take a moment with gemini-3-pro-preview)
+                </div>
+            </div>
+
+            <!-- Output Section -->
+            <div class="border rounded-lg p-4 bg-gray-50 min-h-[400px]">
+                <h2 class="text-xl font-semibold mb-4">Output</h2>
+                <div id="responseContent" class="prose max-w-none"></div>
+                <div id="mermaidContainer" class="mt-4 overflow-auto"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Update Mermaid configuration to allow loose security for HTML labels (images)
+        mermaid.initialize({
+            startOnLoad: true,
+            securityLevel: 'loose'
+        });
+
+        document.getElementById('generateBtn').addEventListener('click', async () => {
+            const text = document.getElementById('userInput').value;
+            const imageInput = document.getElementById('imageInput');
+            const generateBtn = document.getElementById('generateBtn');
+            const loading = document.getElementById('loading');
+            const responseContent = document.getElementById('responseContent');
+            const mermaidContainer = document.getElementById('mermaidContainer');
+
+            if (!text && imageInput.files.length === 0) {
+                alert('Please provide a description or an image.');
+                return;
+            }
+
+            generateBtn.disabled = true;
+            loading.classList.remove('hidden');
+            responseContent.innerHTML = '';
+            mermaidContainer.innerHTML = '';
+
+            let imageData = null;
+            if (imageInput.files.length > 0) {
+                const file = imageInput.files[0];
+                imageData = await new Promise((resolve) => {
+                    const reader = new FileReader();
+                    reader.onloadend = () => resolve(reader.result);
+                    reader.readAsDataURL(file);
+                });
+            }
+
+            try {
+                const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        text: text,
+                        image: imageData
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.error) {
+                    responseContent.innerHTML = `<div class="text-red-500">Error: ${data.error}</div>`;
+                } else {
+                    const rawText = data.response;
+
+                    // Render Markdown
+                    responseContent.innerHTML = marked.parse(rawText);
+
+                    // Extract and render Mermaid
+                    // Look for ```mermaid ... ``` blocks
+                    const mermaidRegex = /```mermaid\n([\s\S]*?)\n```/g;
+                    let match;
+                    let count = 0;
+
+                    while ((match = mermaidRegex.exec(rawText)) !== null) {
+                        const mermaidCode = match[1];
+                        const div = document.createElement('div');
+                        div.className = 'mermaid';
+                        div.textContent = mermaidCode;
+                        mermaidContainer.appendChild(div);
+                        count++;
+                    }
+
+                    if (count > 0) {
+                        mermaid.init(undefined, document.querySelectorAll('.mermaid'));
+                    }
+                }
+
+            } catch (error) {
+                console.error('Error:', error);
+                responseContent.innerHTML = `<div class="text-red-500">Failed to generate response.</div>`;
+            } finally {
+                generateBtn.disabled = false;
+                loading.classList.add('hidden');
+            }
+        });
+    </script>
+</body>
+</html>
